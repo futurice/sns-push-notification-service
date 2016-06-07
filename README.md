@@ -15,6 +15,7 @@ Installation
 Configuration
 -------------
 
+- `ADMIN_AUTH_TOKEN` - authentication token for admin access (publishing, deleting topics etc.). Optional, but if missing, admin access is disabled.
 - `AUTH_TOKEN` - authentication token. Optional, but if missing, random one will be generated on each start.
 - `DEBUG` - if set to "true", Flask debug and debug logging will be enabled. Optional.
 - `AWS_ACCESS_KEY` - access key from Amazon. Avoid using your full-access credentials here - configure restricted account with IAM. Mandatory.
@@ -68,11 +69,7 @@ API
     DELETE /device/<endpoint_id>  # base64 encoded endpoint_id
     GET /status
     GET /topics
-
-TBD:
-
-    GET /
-    POST /publish/device/<endpoint_id>  # base64 encoded endpoint_id
+    POST /publish/endpoint/<endpoint_id>  # base64 encoded endpoint_id
     POST /publish/topic/<topic_id>  # base64 encoded topic_id
 
 
@@ -101,6 +98,39 @@ Deregistering a device
     DELETE /device/<endpoint_id>
 
 `endpoint_id` must be base64 encoded. For example, deleting endpoint with device_id `arn:aws:sns:eu-west-1:1234567890123:endpoint/GCM/your-application-identifier/1b386cbc-7390-303a-8507-174309a94f4b` would become `DELETE /device/YXJuOmF3czpzbnM6ZXUtd2VzdC0xOjEyMzQ1Njc4OTAxMjM6ZW5kcG9pbnQvR0NNL3lvdXItYXBwbGljYXRpb24taWRlbnRpZmllci8xYjM4NmNiYy03MzkwLTMwM2EtODUwNy0xNzQzMDlhOTRmNGI=`. Padding (trailing `=` characters) must be included.
+
+Publishing to endpoint/topic
+----------------------------
+
+    POST /publish/endpoint/<endpoint_arn>  # base64 encoded endpoint_arn
+    POST /publish/topic/<topic_id>  # base64 encoded topic_id
+
+JSON body:
+
+    {
+      "default": "Default message",
+      "APNS": {
+        "aps": {
+          "alert": "Push notification message",
+          "url": "http://www.futurice.com/"
+        }
+      },
+      "GCM": {
+        "data": {
+          "custom-message": "Push notification message",
+          "your-custom-data": "Data for your application"
+        },
+        "time_to_live": 3600,
+        "collapse_key": "promotions"
+      },
+      "WNS": {
+        ...
+      }
+    }
+
+Main-level attributes are optional, except `default`, which must be included. In other words, if you don't have any Windows Phone devices, there's no reason to include `WNS` dictionary.
+
+See upstream provider's reference for field names and descriptions. [GCM](https://developers.google.com/cloud-messaging/http-server-ref#send-downstream), [APNS](https://developer.apple.com/library/ios/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/Chapters/TheNotificationPayload.html)
 
 
 License
