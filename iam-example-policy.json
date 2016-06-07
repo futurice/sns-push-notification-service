@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "SNS:CreatePlatformEndpoint",
+        "SNS:DeleteEndpoint",
+        "SNS:GetEndpointAttributes",
+        "SNS:SetEndpointAttributes",
+        "sns:Receive",
+        "sns:Subscribe"
+      ],
+      "Resource": [
+        "add-your-topics-here",
+        "add-your-platform-applications-here"
+      ]
+    }
+  ]
+}
