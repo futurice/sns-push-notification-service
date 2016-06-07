@@ -65,14 +65,14 @@ API
 ---
 
     POST /device
-    DELETE /device/<endpoint_arn>  # base64 encoded endpoint_arn
+    DELETE /device/<endpoint_id>  # base64 encoded endpoint_id
     GET /status
     GET /topics
 
 TBD:
 
     GET /
-    POST /publish/device/<endpoint_arn>  # base64 encoded endpoint_arn
+    POST /publish/device/<endpoint_id>  # base64 encoded endpoint_id
     POST /publish/topic/<topic_id>  # base64 encoded topic_id
 
 
@@ -85,22 +85,22 @@ JSON body:
 
     {
       "platform": "ios",
-      "endpoint_arn": "optional, must be added if this device has been registered earlier",
+      "endpoint_id": "optional, must be added if this device has been registered earlier",
       "notification_token": "token from apns/gcm/..."
     }
 
-1. Send POST request to `/device`. If there is `endpoint_arn` stored on the device, include it.
+1. Send POST request to `/device`. If there is `endpoint_id` stored on the device, include it.
 2. Check that the return code is 200 OK.
-3. Store `endpoint_arn` from the response.
+3. Store `endpoint_id` from the response.
 
-`endpoint_arn` in POST request is *not* encoded.
+`endpoint_id` in POST request is *not* encoded.
 
 Deregistering a device
 ----------------------
 
-    DELETE /device/<endpoint_arn>
+    DELETE /device/<endpoint_id>
 
-`endpoint_arn` must be base64 encoded. For example, deleting endpoint with device_arn `arn:aws:sns:eu-west-1:1234567890123:endpoint/GCM/your-application-identifier/1b386cbc-7390-303a-8507-174309a94f4b` would become `DELETE /device/YXJuOmF3czpzbnM6ZXUtd2VzdC0xOjEyMzQ1Njc4OTAxMjM6ZW5kcG9pbnQvR0NNL3lvdXItYXBwbGljYXRpb24taWRlbnRpZmllci8xYjM4NmNiYy03MzkwLTMwM2EtODUwNy0xNzQzMDlhOTRmNGI=`. Padding (trailing `=` characters) must be included.
+`endpoint_id` must be base64 encoded. For example, deleting endpoint with device_id `arn:aws:sns:eu-west-1:1234567890123:endpoint/GCM/your-application-identifier/1b386cbc-7390-303a-8507-174309a94f4b` would become `DELETE /device/YXJuOmF3czpzbnM6ZXUtd2VzdC0xOjEyMzQ1Njc4OTAxMjM6ZW5kcG9pbnQvR0NNL3lvdXItYXBwbGljYXRpb24taWRlbnRpZmllci8xYjM4NmNiYy03MzkwLTMwM2EtODUwNy0xNzQzMDlhOTRmNGI=`. Padding (trailing `=` characters) must be included.
 
 
 License

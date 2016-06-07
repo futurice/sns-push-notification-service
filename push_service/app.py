@@ -34,6 +34,7 @@ logger = get_logger()  # pylint:disable=invalid-name
 
 
 def get_application_config(environment):
+    """ Loads configurations from _PLATFORM_APPLICATION environment variables """
     config = {}
     for variable_name, variable_value in environment.items():
         plain_platform_match = PLATFORM_RE.match(variable_name)
@@ -50,6 +51,7 @@ def get_application_config(environment):
 
 
 def get_auth_token():
+    """ Loads or generates authentication token """
     auth_token = os.environ.get("AUTH_TOKEN")
     if not auth_token:
         logger.warning("No authentication token - generating random token")
@@ -84,14 +86,14 @@ def check_authorization():
     abort(401, error_message="Incorrect or missing Auth-Token header")
 
 
-def decode_base64_endpoint_arn(encoded_string):
+def decode_base64_id(encoded_string):
     try:
-        endpoint_arn = base64.b64decode(encoded_string).decode()
+        item_id = base64.b64decode(encoded_string).decode()
     except (binascii.Error, binascii.Incomplete):
         abort(400, error_message="Incorrect or corrupted base64 data")
-    if len(endpoint_arn) < 10:
-        abort(400, error_message="Invalid endpoint_arn")
-    return endpoint_arn
+    if len(item_id) < 10:
+        abort(400, error_message="Invalid ID")
+    return item_id
 
 
 app = Flask("push-service")  # pylint:disable=invalid-name
@@ -101,7 +103,7 @@ app.before_request(check_authorization)
 sns = boto3.client("sns", region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)  # pylint:disable=invalid-name
 
 register_device_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
-register_device_parser.add_argument("endpoint_arn", required=False, type=str)
+register_device_parser.add_argument("endpoint_id", required=False, type=str)
 register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
 
@@ -134,24 +136,24 @@ def run_sns_command(command, *args, **kwargs):
     return response
 
 
-def subscribe_to_topics(endpoint_arn, endpoint_type):
+def subscribe_to_topics(endpoint_id, endpoint_type):
     """ Subscribe to all autosubscribe topics """
     if len(AUTOSUBSCRIBE_TOPICS) > 0:
         for topic in AUTOSUBSCRIBE_TOPICS:
-            run_sns_command(sns.subscribe, TopicArn=topic, Protocol=endpoint_type, Endpoint=endpoint_arn)
+            run_sns_command(sns.subscribe, TopicArn=topic, Protocol=endpoint_type, Endpoint=endpoint_id)
 
 
-def register_endpoint(platform_arn, notification_token):
+def register_endpoint(platform_id, notification_token):
     """ Create a new endpoint to SNS """
-    logger.info("Registering %s to %s", notification_token, platform_arn)
-    registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_arn,
+    logger.info("Registering %s to %s", notification_token, platform_id)
+    registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_id,
                                             Token=notification_token)
     return registration_response["EndpointArn"]
 
 
-def update_endpoint(endpoint_arn, notification_token):
+def update_endpoint(endpoint_id, notification_token):
     """ Update endpoint details (enable the endpoint, update the token) """
-    return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_arn,
+    return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_id,
                            Attributes={"Enabled": "true", "Token": notification_token})
 
 
@@ -161,7 +163,7 @@ class Device(Resource):  # pylint:disable=missing-docstring
 
             {
               "platform": "ios",
-              "endpoint_arn": "optional, must be added if this device has been registered earlier",
+              "endpoint_id": "optional, must be added if this device has been registered earlier",
               "notification_token": "token from apns/gcm/..."
             }
         """
@@ -170,52 +172,53 @@ class Device(Resource):  # pylint:disable=missing-docstring
         if platform not in CONFIG:
             logger.warning("Client provided unknown platform: %s", platform)
             abort(400, error_message="Unknown platform")
-        platform_arn = CONFIG[platform]["platform_application"]
-        if not platform_arn or len(platform_arn) == 0:
+        platform_id = CONFIG[platform]["platform_application"]
+        if not platform_id or len(platform_id) == 0:
             logger.warning("Client provided unconfigured platform: %s (config: %s)", platform, CONFIG)
             abort(400, error_message="Unconfigured platform")
 
         endpoint_exists = False
-        if "endpoint_arn" in args and args["endpoint_arn"]:
+        if "endpoint_id" in args and args["endpoint_id"]:
             # Device should already exist in SNS - try updating the metadata
-            endpoint_arn = args["endpoint_arn"]
-            logger.info("Updating %s with token %s", endpoint_arn, args["notification_token"])
+            endpoint_id = args["endpoint_id"]
+            logger.info("Updating %s with token %s", endpoint_id, args["notification_token"])
             try:
-                update_endpoint(endpoint_arn, args["notification_token"])
+                update_endpoint(endpoint_id, args["notification_token"])
                 endpoint_exists = True
             except NotFoundException:
-                logger.warning("Tried to update non-existing endpoint: %s", endpoint_arn)
+                logger.warning("Tried to update non-existing endpoint: %s", endpoint_id)
 
         if not endpoint_exists:
-            logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_arn, args["notification_token"])
-            endpoint_arn = register_endpoint(platform_arn, args["notification_token"])
+            logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
+            endpoint_id = register_endpoint(platform_id, args["notification_token"])
 
-        subscribe_to_topics(endpoint_arn, CONFIG[platform]["platform_type"])
-        return {"endpoint_arn": endpoint_arn}
+        subscribe_to_topics(endpoint_id, CONFIG[platform]["platform_type"])
+        return {"endpoint_id": endpoint_id}
 
 
 class DeviceDetails(Resource):  # pylint:disable=missing-docstring
-    def delete(self, endpoint_arn):  # pylint:disable=no-self-use
+    def delete(self, endpoint_id):  # pylint:disable=no-self-use
         """ Delete the endpoint. Automatically removes all the subscriptions as well. """
-        endpoint_arn = decode_base64_endpoint_arn(endpoint_arn)
-        logger.info("Deleting endpoint %s", endpoint_arn)
-        sns.delete_endpoint(EndpointArn=endpoint_arn)
+        endpoint_id = decode_base64_id(endpoint_id)
+        logger.info("Deleting endpoint %s", endpoint_id)
+        sns.delete_endpoint(EndpointArn=endpoint_id)
         return "", 204
 
-    def get(self, endpoint_arn):  # pylint:disable=no-self-use
-        """ Get endpoint details (enabled, token, endpoint ARN) """
-        endpoint_arn = decode_base64_endpoint_arn(endpoint_arn)
+    def get(self, endpoint_id):  # pylint:disable=no-self-use
+        """ Get endpoint details (enabled, token, endpoint ID) """
+        endpoint_id = decode_base64_id(endpoint_id)
         try:
-            details = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_arn)
+            details = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_id)
         except NotFoundException:
             abort(404, error_message="Endpoint does not exist")
-        logger.debug("Getting information for %s: %s", endpoint_arn, details)
+        logger.debug("Getting information for %s: %s", endpoint_id, details)
         attributes = details["Attributes"]
-        return {"endpoint_arn": endpoint_arn, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"]}
+        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"]}
 
 
 class Topics(Resource):
-    def get(self):
+    def get(self):  # pylint:disable=no-self-use
+        """ List available topics """
         paging = paging_parser.parse_args()
         kwargs = {}
         if "page" in paging and paging["page"]:
@@ -227,7 +230,7 @@ class Topics(Resource):
 
 
 api.add_resource(Device, "/device")
-api.add_resource(DeviceDetails, "/device/<endpoint_arn>")
+api.add_resource(DeviceDetails, "/device/<endpoint_id>")
 api.add_resource(Status, "/status")
 api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
 api.add_resource(Topics, "/topics")
