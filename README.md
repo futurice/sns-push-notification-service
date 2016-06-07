@@ -54,6 +54,7 @@ API
 
     POST /device
     DELETE /device/<endpoint_arn>  # base64 encoded endpoint_arn
+    GET /status
 
 TBD:
 
