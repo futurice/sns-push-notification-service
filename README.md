@@ -15,6 +15,7 @@ Installation
 Configuration
 -------------
 
+- `AUTH_TOKEN` - authentication token. Optional, but if missing, random one will be generated on each start.
 - `DEBUG` - if set to "true", Flask debug and debug logging will be enabled. Optional.
 - `AWS_ACCESS_KEY` - access key from Amazon. Avoid using your full-access credentials here - configure restricted account with IAM. Mandatory.
 - `AWS_SECRET_KEY` - secret access key. Mandatory.
@@ -48,6 +49,17 @@ For example,
     AUTOSUBSCRIBE_TOPICS="arn:aws:sns:eu-west-1:038762057900:all-items-topic"
 
 With this configuration, all new endpoints will be subscribed to "all-items-topic". Endpoints can use `gcm`, `gcm_mobile` and `gcm_tablet` as platform identifier. Each identifier will be registered to different SNS platform application.
+
+Authorization
+-------------
+
+Send authentication token (configured with `AUTH_TOKEN` environment variable. If not configured, see startup logs for random token) as `Auth-Token` (case-insensitive) HTTP header. I.e.,
+
+    GET /topics
+    Host: your-server-hostname.example.com
+    Auth-Token: HQD2PAKBNKSEVXCFJ6LCLE32FPRKN47MO5Y0RYWPPCLMH3Z0AA
+
+See your HTTP client's documentation for API to send custom headers.
 
 API
 ---

@@ -9,7 +9,7 @@ import re
 import boto3
 import botocore.exceptions
 
-from flask import Flask
+from flask import Flask, request
 from flask_restful import Resource, Api, abort, reqparse
 from flask_restful_url_generator import UrlList
 
@@ -34,16 +34,6 @@ def get_logger():
 logger = get_logger()  # pylint:disable=invalid-name
 
 
-AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
-AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
-AWS_REGION = os.environ["AWS_REGION"]
-
-AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
-
-
-PLATFORM_RE = re.compile("(?P<platform_identifier>[A-Z_]{1,50})_PLATFORM_APPLICATION")
-
-
 def get_application_config(environment):
     config = {}
     for variable_name, variable_value in environment.items():
@@ -55,14 +45,45 @@ def get_application_config(environment):
             }
     return config
 
-CONFIG = get_application_config(os.environ)
 
+def get_auth_token():
+    auth_token = os.environ.get("AUTH_TOKEN")
+    if not auth_token:
+        logger.warning("No authentication token - generating random token")
+        import random
+        import string
+        # Snipped copied from http://stackoverflow.com/a/2257449
+        auth_token = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(50))
+        logger.warning("Auth-Token for this instance is '%s'. This token will be regenerated on restart. Please configure AUTH_TOKEN environment variable.", auth_token)
+    return auth_token
+
+
+AUTH_TOKEN = get_auth_token()
+AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
+AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
+AWS_REGION = os.environ["AWS_REGION"]
+AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
+PLATFORM_RE = re.compile("(?P<platform_identifier>[A-Z_]{1,50})_PLATFORM_APPLICATION")
+CONFIG = get_application_config(os.environ)
+BOTO_ERRORS = [
+    (re.compile(r".*SignatureDoesNotMatch.*"), 500, "Incorrect upstream credentials"),
+    (re.compile(r".*AuthorizationError.*"), 500, "Incorrect access configuration in SNS"),
+    (re.compile(r".*InvalidParameter.*"), 400, "Incorrect token"),
+]
 
 logger.debug("CONFIG=%s", CONFIG)
 logger.debug("Autosubscribe topics: %s", AUTOSUBSCRIBE_TOPICS)
 
+
+def check_authorization():
+    if request.headers.get("Auth-Token") == AUTH_TOKEN:
+        return
+    abort(401, error_message="Incorrect or missing Auth-Token header")
+
+
 app = Flask("push-service")  # pylint:disable=invalid-name
 api = Api(app)  # pylint:disable=invalid-name
+app.before_request(check_authorization)
 
 sns = boto3.client("sns", region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)  # pylint:disable=invalid-name
 
@@ -73,12 +94,6 @@ register_device_parser.add_argument("notification_token", required=True, type=st
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
-
-BOTO_ERRORS = [
-    (re.compile(r".*SignatureDoesNotMatch.*"), 500, "Incorrect upstream credentials"),
-    (re.compile(r".*AuthorizationError.*"), 500, "Incorrect access configuration in SNS"),
-    (re.compile(r".*InvalidParameter.*"), 400, "Incorrect token"),
-]
 
 
 class NotFoundException(Exception):
