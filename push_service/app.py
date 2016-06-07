@@ -40,24 +40,23 @@ AWS_REGION = os.environ["AWS_REGION"]
 
 AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
 
-CONFIG = {
-    "wns": {
-        "platform_application": os.environ.get("WNS_PLATFORM_APPLICATION"),
-        "platform_type": "application",
-    },
-    "apns": {
-        "platform_application": os.environ.get("APNS_PLATFORM_APPLICATION"),
-        "platform_type": "application",
-    },
-    "gcm": {
-        "platform_application": os.environ.get("GCM_PLATFORM_APPLICATION"),
-        "platform_type": "application",
-    },
-    "email": {
-        "platform_application": os.environ.get("EMAIL_PLATFORM_APPLICATION"),
-        "platform_type": "email",
-    },
-}
+
+PLATFORM_RE = re.compile("(?P<platform_identifier>[A-Z_]{1,50})_PLATFORM_APPLICATION")
+
+
+def get_application_config(environment):
+    config = {}
+    for variable_name, variable_value in environment.items():
+        plain_platform_match = PLATFORM_RE.match(variable_name)
+        if plain_platform_match:
+            config[plain_platform_match.group("platform_identifier").lower()] = {
+                "platform_type": "application",
+                "platform_application": variable_value
+            }
+    return config
+
+CONFIG = get_application_config(os.environ)
+
 
 logger.debug("CONFIG=%s", CONFIG)
 logger.debug("Autosubscribe topics: %s", AUTOSUBSCRIBE_TOPICS)
@@ -136,7 +135,7 @@ class Device(Resource):  # pylint:disable=missing-docstring
             }
         """
         args = register_device_parser.parse_args()
-        platform = args["platform"]
+        platform = args["platform"].lower().replace("-", "_")
         if platform not in CONFIG:
             logger.warning("Client provided unknown platform: %s", platform)
             abort(400, error_message="Unknown platform")
