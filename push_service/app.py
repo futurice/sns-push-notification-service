@@ -1,7 +1,6 @@
-
-
 # pylint:disable=line-too-long
 import base64
+import binascii
 import logging
 import os
 import re
@@ -39,10 +38,14 @@ def get_application_config(environment):
     for variable_name, variable_value in environment.items():
         plain_platform_match = PLATFORM_RE.match(variable_name)
         if plain_platform_match:
-            config[plain_platform_match.group("platform_identifier").lower()] = {
+            platform_identifier = plain_platform_match.group("platform_identifier").lower()
+            logger.debug("Adding new platform application: %s - %s", platform_identifier, variable_value)
+            config[platform_identifier] = {
                 "platform_type": "application",
                 "platform_application": variable_value
             }
+    if len(config) == 0:
+        logger.warning("No platform applications defined - registering new endpoints will not succeed.")
     return config
 
 
@@ -79,6 +82,16 @@ def check_authorization():
     if request.headers.get("Auth-Token") == AUTH_TOKEN:
         return
     abort(401, error_message="Incorrect or missing Auth-Token header")
+
+
+def decode_base64_endpoint_arn(encoded_string):
+    try:
+        endpoint_arn = base64.b64decode(encoded_string).decode()
+    except (binascii.Error, binascii.Incomplete):
+        abort(400, error_message="Incorrect or corrupted base64 data")
+    if len(endpoint_arn) < 10:
+        abort(400, error_message="Invalid endpoint_arn")
+    return endpoint_arn
 
 
 app = Flask("push-service")  # pylint:disable=invalid-name
@@ -166,6 +179,7 @@ class Device(Resource):  # pylint:disable=missing-docstring
         if "endpoint_arn" in args and args["endpoint_arn"]:
             # Device should already exist in SNS - try updating the metadata
             endpoint_arn = args["endpoint_arn"]
+            logger.info("Updating %s with token %s", endpoint_arn, args["notification_token"])
             try:
                 update_endpoint(endpoint_arn, args["notification_token"])
                 endpoint_exists = True
@@ -173,6 +187,7 @@ class Device(Resource):  # pylint:disable=missing-docstring
                 logger.warning("Tried to update non-existing endpoint: %s", endpoint_arn)
 
         if not endpoint_exists:
+            logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_arn, args["notification_token"])
             endpoint_arn = register_endpoint(platform_arn, args["notification_token"])
 
         subscribe_to_topics(endpoint_arn, CONFIG[platform]["platform_type"])
@@ -182,17 +197,19 @@ class Device(Resource):  # pylint:disable=missing-docstring
 class DeviceDetails(Resource):  # pylint:disable=missing-docstring
     def delete(self, endpoint_arn):  # pylint:disable=no-self-use
         """ Delete the endpoint. Automatically removes all the subscriptions as well. """
-        endpoint_arn = base64.b64decode(endpoint_arn).decode()
+        endpoint_arn = decode_base64_endpoint_arn(endpoint_arn)
+        logger.info("Deleting endpoint %s", endpoint_arn)
         sns.delete_endpoint(EndpointArn=endpoint_arn)
         return "", 204
 
     def get(self, endpoint_arn):  # pylint:disable=no-self-use
         """ Get endpoint details (enabled, token, endpoint ARN) """
-        endpoint_arn = base64.b64decode(endpoint_arn).decode()
+        endpoint_arn = decode_base64_endpoint_arn(endpoint_arn)
         try:
             details = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_arn)
         except NotFoundException:
             abort(404, error_message="Endpoint does not exist")
+        logger.debug("Getting information for %s: %s", endpoint_arn, details)
         attributes = details["Attributes"]
         return {"endpoint_arn": endpoint_arn, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"]}
 
