@@ -55,10 +55,10 @@ API
     POST /device
     DELETE /device/<endpoint_arn>  # base64 encoded endpoint_arn
     GET /status
+    GET /topics
 
 TBD:
 
-    GET /topics
     GET /
     POST /publish/device/<endpoint_arn>  # base64 encoded endpoint_arn
     POST /publish/topic/<topic_id>  # base64 encoded topic_id

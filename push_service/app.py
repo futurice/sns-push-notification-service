@@ -71,6 +71,9 @@ register_device_parser.add_argument("endpoint_arn", required=False, type=str)
 register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
 
+paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
+paging_parser.add_argument("page", required=False, type=str)
+
 BOTO_ERRORS = [
     (re.compile(r".*SignatureDoesNotMatch.*"), 500, "Incorrect upstream credentials"),
     (re.compile(r".*AuthorizationError.*"), 500, "Incorrect access configuration in SNS"),
@@ -179,10 +182,23 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
         return {"endpoint_arn": endpoint_arn, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"]}
 
 
+class Topics(Resource):
+    def get(self):
+        paging = paging_parser.parse_args()
+        kwargs = {}
+        if "page" in paging and paging["page"]:
+            kwargs["NextToken"] = paging["page"]
+        topics = run_sns_command(sns.list_topics, **kwargs)
+        ret = {"next_page": topics.get("NextToken"),
+               "topics": [topic["TopicArn"] for topic in topics.get("Topics", [])]}
+        return ret
+
+
 api.add_resource(Device, "/device")
 api.add_resource(DeviceDetails, "/device/<endpoint_arn>")
 api.add_resource(Status, "/status")
 api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
+api.add_resource(Topics, "/topics")
 
 
 def main():  # pylint:disable=missing-docstring
