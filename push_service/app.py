@@ -1,6 +1,7 @@
 # pylint:disable=line-too-long
 import base64
 import binascii
+import json
 import logging
 import os
 import re
@@ -50,6 +51,12 @@ def get_application_config(environment):
     return config
 
 
+def admin_required():
+    if hasattr(request, "is_admin") and request.is_admin:
+        return
+    abort(401, error_message="Admin token required")
+
+
 def get_auth_token():
     """ Loads or generates authentication token """
     auth_token = os.environ.get("AUTH_TOKEN")
@@ -64,6 +71,12 @@ def get_auth_token():
 
 
 AUTH_TOKEN = get_auth_token()
+ADMIN_AUTH_TOKEN = os.environ.get("ADMIN_AUTH_TOKEN")
+if not ADMIN_AUTH_TOKEN:
+    logger.info("ADMIN_AUTH_TOKEN is not specified. Admin access (publishing etc.) is not available.")
+if AUTH_TOKEN == ADMIN_AUTH_TOKEN:
+    logger.warning("Do not set AUTH_TOKEN == ADMIN_AUTH_TOKEN. Disabling ADMIN_AUTH_TOKEN.")
+    ADMIN_AUTH_TOKEN = None
 AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
 AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
 AWS_REGION = os.environ["AWS_REGION"]
@@ -81,7 +94,12 @@ logger.debug("Autosubscribe topics: %s", AUTOSUBSCRIBE_TOPICS)
 
 
 def check_authorization():
-    if request.headers.get("Auth-Token") == AUTH_TOKEN:
+    auth_token = request.headers.get("Auth-Token")
+    if auth_token and auth_token == AUTH_TOKEN:
+        return
+    request.is_admin = False
+    if auth_token and auth_token == ADMIN_AUTH_TOKEN:
+        request.is_admin = True
         return
     abort(401, error_message="Incorrect or missing Auth-Token header")
 
@@ -229,11 +247,44 @@ class Topics(Resource):
         return ret
 
 
+def publish(data, target):
+    if data is None:
+        abort(400, error_message="Invalid push message body")
+    encoded_sns_data = {}
+    for platform, platform_data in data.items():
+        encoded_sns_data[platform] = json.dumps(platform_data)
+    kwargs = {
+        "Message": json.dumps(encoded_sns_data),
+        "TargetArn": target,
+        "MessageStructure": "json",
+    }
+    message_data = run_sns_command(sns.publish, **kwargs)
+    return {"message_id": message_data.get("MessageId")}
+
+
+class PublishToTopic(Resource):
+    def post(self, topic_id):  # pylint:disable=no-self-use
+        admin_required()
+        data = request.get_json()
+        topic_id = decode_base64_id(topic_id)
+        return publish(data, topic_id)
+
+
+class PublishToEndpoint(Resource):
+    def post(self, endpoint_id):  # pylint:disable=no-self-use
+        admin_required()
+        data = request.get_json()
+        endpoint_id = decode_base64_id(endpoint_id)
+        return publish(data, endpoint_id)
+
+
 api.add_resource(Device, "/device")
 api.add_resource(DeviceDetails, "/device/<endpoint_id>")
 api.add_resource(Status, "/status")
 api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
 api.add_resource(Topics, "/topics")
+api.add_resource(PublishToTopic, "/publish/topic/<topic_id>")
+api.add_resource(PublishToEndpoint, "/publish/endpoint/<endpoint_id>")
 
 
 def main():  # pylint:disable=missing-docstring
