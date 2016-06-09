@@ -3,6 +3,19 @@ SNS push service
 
 This service provides a simple API for registering devices to SNS.
 
+What this is and what this is not?
+----------------------------------
+
+- There *is* a simple API for basic operations
+- There *is* a simple token authentication with two tokens (admin/user)
+- This *is not* full management service for SNS
+- There *is no* functionality for managing platform applications or permissions. Do these through SNS console.
+- There *is no* support for email/SMS/SQS/HTTP/... subscriptions. This service is designed for mobile apps, and not to be a generic all-purpose push service.
+- There *is no* configurable authorization logic, or multiple authentication schemes. There is only admin token for all operations and restricted consumer token.
+- There *is no* state on the server side, i.e., all client information, subscriptions and so on are stored in SNS, not on this service. This means client devices (mobile apps) must keep their device IDs and subscription IDs stored somewhere.
+
+Push requests for functionality listed with "no" will probably be rejected - even though those features would be useful for some people, not everything is worth added complexity.
+
 Installation
 ------------
 
