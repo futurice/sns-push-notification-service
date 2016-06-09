@@ -123,6 +123,7 @@ register_device_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 register_device_parser.add_argument("endpoint_id", required=False, type=str)
 register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
+register_device_parser.add_argument("auto_subscribe", required=False, type=bool, default=True)
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
@@ -159,9 +160,12 @@ def run_sns_command(command, *args, **kwargs):
 
 def subscribe_to_topics(endpoint_id, endpoint_type):
     """ Subscribe to all autosubscribe topics """
+    subscription_ids = []
     if len(AUTOSUBSCRIBE_TOPICS) > 0:
         for topic in AUTOSUBSCRIBE_TOPICS:
-            run_sns_command(sns.subscribe, TopicArn=topic, Protocol=endpoint_type, Endpoint=endpoint_id)
+            topic_data = run_sns_command(sns.subscribe, TopicArn=topic, Protocol=endpoint_type, Endpoint=endpoint_id)
+            subscription_ids.append(topic_data["SubscriptionArn"])
+    return subscription_ids
 
 
 def register_endpoint(platform_id, notification_token):
@@ -213,8 +217,12 @@ class Device(Resource):  # pylint:disable=missing-docstring
             logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
             endpoint_id = register_endpoint(platform_id, args["notification_token"])
 
-        subscribe_to_topics(endpoint_id, CONFIG[platform]["platform_type"])
-        return {"endpoint_id": endpoint_id}
+        if args["auto_subscribe"]:
+            subscription_ids = subscribe_to_topics(endpoint_id, "application")
+        else:
+            subscription_ids = []
+            logger.debug("Did not subscribe device to any topics - auto_subscribe was set to false.")
+        return {"endpoint_id": endpoint_id, "subscription_ids": subscription_ids}
 
 
 class DeviceDetails(Resource):  # pylint:disable=missing-docstring

@@ -104,8 +104,11 @@ JSON body:
     {
       "platform": "ios",
       "endpoint_id": "optional, must be added if this device has been registered earlier",
-      "notification_token": "token from apns/gcm/..."
+      "notification_token": "token from apns/gcm/...",
+      "auto_subscribe": true
     }
+
+`auto_subscribe` is true by default. Optional field. If set to false, device is not automatically subscribed to `AUTOSUBSCRIBE_TOPICS`.
 
 1. Send POST request to `/device`. If there is `endpoint_id` stored on the device, include it.
 2. Check that the return code is 200 OK.
