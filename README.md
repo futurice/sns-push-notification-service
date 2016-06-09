@@ -82,6 +82,14 @@ API
     DELETE /device/<endpoint_id>  # base64 encoded endpoint_id
     GET /status
     GET /topics
+    GET /topic/<topic_id>  # base64 encoded topic_id
+    POST /subscription/topic/<topic_id>/target/<endpoint_id>  # base64 encoded topic_id and endpoint_id.
+    DELETE /subscription/topic/<topic_id>/target/<subscription_id>  # base64 encoded topic_id and subscription_id.
+
+Admin endpoints:
+
+    POST /topics
+    DELETE /topic/<topic_id>  # base64 encoded topic_id
     POST /publish/endpoint/<endpoint_id>  # base64 encoded endpoint_id
     POST /publish/topic/<topic_id>  # base64 encoded topic_id
 
@@ -144,6 +152,38 @@ JSON body:
 Main-level attributes are optional, except `default`, which must be included. In other words, if you don't have any Windows Phone devices, there's no reason to include `WNS` dictionary.
 
 See upstream provider's reference for field names and descriptions. [GCM](https://developers.google.com/cloud-messaging/http-server-ref#send-downstream), [APNS](https://developer.apple.com/library/ios/documentation/NetworkingInternet/Conceptual/RemoteNotificationsPG/Chapters/TheNotificationPayload.html)
+
+Creating a new topic
+--------------------
+
+    POST /topics
+
+JSON body:
+
+    {
+      "name": "topic-name-including_numbers_123"
+    }
+
+"name" must conform to `[A-Za-z0-9-_]{1,256}`
+
+Returns `{"topic_id": "<id_from_amazon>"}`
+
+Subscribing and unsubscribing to/from topics
+--------------------------------------------
+
+    POST /subscription/topic/<topic_id>/target/<endpoint_id>  # base64 encoded topic_id and endpoint_id.
+
+Empty body. Returns
+
+    {
+      "subscription_id": "<subscription_id_string>"
+    }
+
+Client needs to store `subscription_id` if it ever wants to unsubscribe from the topic. Deregistering the device (`DELETE /device/<device_id>`) will remove all subscriptions.
+
+Unsubscribing from topic is not possible without subscription ID:
+
+    DELETE /subscription/topic/<topic_id>/target/<subscription_id>  # base64 encoded topic_id and subscription_id.
 
 
 License

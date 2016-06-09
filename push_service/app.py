@@ -43,7 +43,6 @@ def get_application_config(environment):
             platform_identifier = plain_platform_match.group("platform_identifier").lower()
             logger.debug("Adding new platform application: %s - %s", platform_identifier, variable_value)
             config[platform_identifier] = {
-                "platform_type": "application",
                 "platform_application": variable_value
             }
     if len(config) == 0:
@@ -127,6 +126,10 @@ register_device_parser.add_argument("notification_token", required=True, type=st
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
+
+name_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
+name_parser.add_argument("name", required=True, type=str)
+TOPIC_NAME_RE = re.compile("[A-Za-z-_0-9]{1,256}")
 
 
 class NotFoundException(Exception):
@@ -246,6 +249,49 @@ class Topics(Resource):
                "topics": [topic["TopicArn"] for topic in topics.get("Topics", [])]}
         return ret
 
+    def post(self):  # pylint:disable=no-self-use
+        admin_required()
+        name = name_parser.parse_args()["name"]
+        if not TOPIC_NAME_RE.match(name):
+            abort(400, error_message="Invalid topic name. Topic name can only contain A-Z, a-z, 0-9, - and _")
+        topic_id = run_sns_command(sns.create_topic, Name=name)
+        return {"topic_id": topic_id["TopicArn"]}
+
+
+class Topic(Resource):
+    def get(self, topic_id):  # pylint:disable=no-self-use
+        topic_id = decode_base64_id(topic_id)
+        try:
+            topic = run_sns_command(sns.get_topic_attributes, TopicArn=topic_id)["Attributes"]
+        except NotFoundException:
+            abort(404, error_message="Topic does not exist.")
+        print(topic)
+        return {"topic_id": topic["TopicArn"],
+                "pending_subscriptions": int(topic["SubscriptionsPending"]),
+                "confirmed_subscriptions": int(topic["SubscriptionsConfirmed"]),
+                "deleted_subscriptions": int(topic["SubscriptionsDeleted"]),
+                "name": topic["DisplayName"]}
+
+    def delete(self, topic_id):  # pylint:disable=no-self-use
+        admin_required()
+        topic_id = decode_base64_id(topic_id)
+        run_sns_command(sns.delete_topic, TopicArn=topic_id)
+        return "", 204
+
+
+class Subscription(Resource):
+    def post(self, topic_id, target_id):  # pylint:disable=no-self-use
+        topic_id = decode_base64_id(topic_id)
+        endpoint_id = decode_base64_id(target_id)
+        subscription = run_sns_command(sns.subscribe, TopicArn=topic_id, Protocol="application", Endpoint=endpoint_id)
+        return {"subscription_id": subscription["SubscriptionArn"]}
+
+    def delete(self, topic_id, target_id):  # pylint:disable=no-self-use
+        topic_id = decode_base64_id(topic_id)
+        subscription_id = decode_base64_id(target_id)
+        run_sns_command(sns.unsubscribe, SubscriptionArn=subscription_id)
+        return "", 204
+
 
 def publish(data, target):
     if data is None:
@@ -262,29 +308,29 @@ def publish(data, target):
     return {"message_id": message_data.get("MessageId")}
 
 
-class PublishToTopic(Resource):
-    def post(self, topic_id):  # pylint:disable=no-self-use
+class PublishMessage(Resource):
+    def post(self, target_id):  # pylint:disable=no-self-use
         admin_required()
         data = request.get_json()
-        topic_id = decode_base64_id(topic_id)
-        return publish(data, topic_id)
-
-
-class PublishToEndpoint(Resource):
-    def post(self, endpoint_id):  # pylint:disable=no-self-use
-        admin_required()
-        data = request.get_json()
-        endpoint_id = decode_base64_id(endpoint_id)
-        return publish(data, endpoint_id)
+        target_id = decode_base64_id(target_id)
+        return publish(data, target_id)
 
 
 api.add_resource(Device, "/device")
 api.add_resource(DeviceDetails, "/device/<endpoint_id>")
+api.add_resource(Topics, "/topics")  # POST is admin-only operation.
+api.add_resource(Subscription, "/subscription/topic/<topic_id>/target/<target_id>")
+
 api.add_resource(Status, "/status")
 api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
-api.add_resource(Topics, "/topics")
-api.add_resource(PublishToTopic, "/publish/topic/<topic_id>")
-api.add_resource(PublishToEndpoint, "/publish/endpoint/<endpoint_id>")
+
+# admin endpoints
+
+# These are separated, as some other services may need different handling for topics and endpoints.
+api.add_resource(PublishMessage, "/publish/topic/<target_id>", endpoint="publish_to_topic")
+api.add_resource(PublishMessage, "/publish/endpoint/<target_id>", endpoint="publish_to_endpoint")
+
+api.add_resource(Topic, "/topic/<topic_id>")
 
 
 def main():  # pylint:disable=missing-docstring
