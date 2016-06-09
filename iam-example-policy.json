@@ -5,11 +5,15 @@
       "Effect": "Allow",
       "Action": [
         "SNS:CreatePlatformEndpoint",
+        "SNS:CreateTopic",
         "SNS:DeleteEndpoint",
+        "SNS:DeleteTopic",
         "SNS:GetEndpointAttributes",
+        "SNS:ListTopics",
+        "SNS:Publish",
         "SNS:SetEndpointAttributes",
-        "sns:Receive",
-        "sns:Subscribe"
+        "SNS:Subscribe",
+        "SNS:Unsubscribe"
       ],
       "Resource": [
         "add-your-topics-here",
