@@ -21,7 +21,7 @@ Installation
 
 1. Sign up to AWS
 2. Configure SNS (create topics and platform applications).
-3. Configure [IAM](https://aws.amazon.com/documentation/iam/) for SNS access. [Example policy](iam-example-policy.json). Add your topics and platform applications to `Resource` array.
+3. Configure [IAM](https://aws.amazon.com/documentation/iam/) for SNS access. [IAM configuration explained](iam_configuration.md). Add your topics and platform applications to `Resource` array.
 4. Set up SNS credentials and other settings as environment variables ([config variables in Heroku](https://devcenter.heroku.com/articles/config-vars)).
 5. In local environment, create and activate new python virtual environment (`pyvenv push-service-env; source push-service-env/bin/activate`) and install dependencies (`pip install -r requirements.txt`). For Heroku, push to heroku remote (`git push heroku master`).
 
@@ -34,11 +34,9 @@ Configuration
 - `AWS_ACCESS_KEY` - access key from Amazon. Avoid using your full-access credentials here - configure restricted account with IAM. Mandatory.
 - `AWS_SECRET_KEY` - secret access key. Mandatory.
 - `AWS_REGION` - AWS region name for configured SNS (i.e., `eu-west-1`). Mandatory.
-- `AUTOSUBSCRIBE_TOPICS` - optional. Comma-separated list of topics each device will be subscribed when registering an endpoint.
+- `AUTOSUBSCRIBE_TOPICS` - optional. Comma-separated list of topics each device will be subscribed automatically during registration.
 
-Configuring platform applications: create platform applications in SNS first. In this service, you need to invent aliases for each platform application.
-
-For example, if you have platform application with identifier `arn:aws:sns:eu-west-1:133752156591:app/WNS/your-app-name-here`, you can add environment variable
+Configuring platform applications: create platform applications in SNS first. In this service, you need to invent aliases for each platform application. For example, if you have platform application with identifier `arn:aws:sns:eu-west-1:133752156591:app/WNS/your-app-name-here`, you can add environment variable
 
     APP_NAME_PLATFORM_APPLICATION="arn:aws:sns:eu-west-1:133752156591:app/WNS/your-app-name-here"
 
@@ -62,7 +60,7 @@ For example,
     GCM_TABLET_PLATFORM_APPLICATION="arn:aws:sns:eu-west-1:018561567490:app/GCM/yet-another-app-identifier-here"
     AUTOSUBSCRIBE_TOPICS="arn:aws:sns:eu-west-1:038762057900:all-items-topic"
 
-With this configuration, all new endpoints will be subscribed to "all-items-topic". Endpoints can use `gcm`, `gcm_mobile` and `gcm_tablet` as platform identifier. Each identifier will be registered to different SNS platform application.
+With this configuration, all new endpoints will be subscribed to "all-items-topic". Apps can use `gcm`, `gcm_mobile` and `gcm_tablet` as platform identifier. Each identifier will be registered to a different SNS platform application.
 
 Authorization
 -------------
@@ -74,6 +72,8 @@ Send authentication token (configured with `AUTH_TOKEN` environment variable. If
     Auth-Token: HQD2PAKBNKSEVXCFJ6LCLE32FPRKN47MO5Y0RYWPPCLMH3Z0AA
 
 See your HTTP client's documentation for API to send custom headers.
+
+Admin token (configured with `ADMIN_AUTH_TOKEN` environment variable) uses the same header. Admin token is required for all admin endpoints. Do not include admin token in any public client applications, as it allows sending push notifications and deleting topics.
 
 API
 ---
@@ -108,13 +108,15 @@ JSON body:
       "auto_subscribe": true
     }
 
-`auto_subscribe` is true by default. Optional field. If set to false, device is not automatically subscribed to `AUTOSUBSCRIBE_TOPICS`.
+`auto_subscribe` is true by default. Optional field. If set to false, device is not automatically subscribed to `AUTOSUBSCRIBE_TOPICS`. There is no separate endpoint for just subscribing to default topics. If you want to do that, send a new registration request without `auto_subscribe: false`, and the server will handle subscriptions.
 
 1. Send POST request to `/device`. If there is `endpoint_id` stored on the device, include it.
 2. Check that the return code is 200 OK.
-3. Store `endpoint_id` from the response.
+3. Store `endpoint_id` from the response. This is needed for other requests.
 
 `endpoint_id` in POST request is *not* encoded.
+
+If client loses `endpoint_id`, it can just re-register. If the notification token did not change, SNS will return the same `endpoint_id`. If the notification token changed, new `endpoint_id` will be assigned. In this case SNS will keep the old endpoint registration, but it will be disabled when the token expires from APNS/GCM/... Unfortunately, there may be timeframe when both tokens are valid, and user will receive duplicate push notifications. This can be avoided by always including `endpoint_id` when registering the device.
 
 Deregistering a device
 ----------------------
