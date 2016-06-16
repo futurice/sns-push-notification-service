@@ -80,6 +80,14 @@ AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
 AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
 AWS_REGION = os.environ["AWS_REGION"]
 AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
+
+# Check for path prefix
+if os.environ.get("PATH_PREFIX"):
+    PATH_PREFIX = "/" + os.environ.get('PATH_PREFIX').strip("/")
+    logger.debug("PATH_PREFIX set to '%s'", PATH_PREFIX)
+else:
+    PATH_PREFIX = ""
+
 PLATFORM_RE = re.compile("(?P<platform_identifier>[A-Z_]{1,50})_PLATFORM_APPLICATION")
 CONFIG = get_application_config(os.environ)
 BOTO_ERRORS = [
@@ -114,7 +122,7 @@ def decode_base64_id(encoded_string):
 
 
 app = Flask("push-service")  # pylint:disable=invalid-name
-api = Api(app)  # pylint:disable=invalid-name
+api = Api(app, prefix=PATH_PREFIX)  # pylint:disable=invalid-name
 app.before_request(check_authorization)
 
 sns = boto3.client("sns", region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)  # pylint:disable=invalid-name
@@ -322,7 +330,6 @@ class PublishMessage(Resource):
         data = request.get_json()
         target_id = decode_base64_id(target_id)
         return publish(data, target_id)
-
 
 api.add_resource(Device, "/device")
 api.add_resource(DeviceDetails, "/device/<endpoint_id>")
