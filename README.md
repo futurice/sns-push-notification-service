@@ -35,6 +35,7 @@ Configuration
 - `AWS_SECRET_KEY` - secret access key. Mandatory.
 - `AWS_REGION` - AWS region name for configured SNS (i.e., `eu-west-1`). Mandatory.
 - `AUTOSUBSCRIBE_TOPICS` - optional. Comma-separated list of topics each device will be subscribed automatically during registration.
+- `PATH_PREFIX` - optional. A prefix added to the URL path (without the leading `/`). eg. with a value of `push-service` the `topics` endpoint would be under `/push-service/topics`
 
 Configuring platform applications: create platform applications in SNS first. In this service, you need to invent aliases for each platform application. For example, if you have platform application with identifier `arn:aws:sns:eu-west-1:133752156591:app/WNS/your-app-name-here`, you can add environment variable
 

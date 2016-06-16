@@ -323,22 +323,28 @@ class PublishMessage(Resource):
         target_id = decode_base64_id(target_id)
         return publish(data, target_id)
 
+# Check for path prefix
+if os.environ.get('PATH_PREFIX'):
+    PATH_PREFIX = "/" + os.environ.get('PATH_PREFIX')
+    logger.info("PATH_PREFIX set to '%s'", PATH_PREFIX)
+else:
+    PATH_PREFIX = ""
 
-api.add_resource(Device, "/device")
-api.add_resource(DeviceDetails, "/device/<endpoint_id>")
-api.add_resource(Topics, "/topics")  # POST is admin-only operation.
-api.add_resource(Subscription, "/subscription/topic/<topic_id>/target/<target_id>")
+api.add_resource(Device, PATH_PREFIX + "/device")
+api.add_resource(DeviceDetails, PATH_PREFIX + "/device/<endpoint_id>")
+api.add_resource(Topics, PATH_PREFIX + "/topics")  # POST is admin-only operation.
+api.add_resource(Subscription, PATH_PREFIX + "/subscription/topic/<topic_id>/target/<target_id>")
 
-api.add_resource(Status, "/status")
-api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
+api.add_resource(Status, PATH_PREFIX + "/status")
+api.add_resource(UrlList, PATH_PREFIX + "/", resource_class_kwargs={"api": api})
 
 # admin endpoints
 
 # These are separated, as some other services may need different handling for topics and endpoints.
-api.add_resource(PublishMessage, "/publish/topic/<target_id>", endpoint="publish_to_topic")
-api.add_resource(PublishMessage, "/publish/endpoint/<target_id>", endpoint="publish_to_endpoint")
+api.add_resource(PublishMessage, PATH_PREFIX + "/publish/topic/<target_id>", endpoint="publish_to_topic")
+api.add_resource(PublishMessage, PATH_PREFIX + "/publish/endpoint/<target_id>", endpoint="publish_to_endpoint")
 
-api.add_resource(Topic, "/topic/<topic_id>")
+api.add_resource(Topic, PATH_PREFIX + "/topic/<topic_id>")
 
 
 def main():  # pylint:disable=missing-docstring
