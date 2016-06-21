@@ -101,6 +101,8 @@ logger.debug("Autosubscribe topics: %s", AUTOSUBSCRIBE_TOPICS)
 
 
 def check_authorization():
+    if request.endpoint == "status":
+        return
     auth_token = request.headers.get("Auth-Token")
     if auth_token and auth_token == AUTH_TOKEN:
         return
