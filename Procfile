@@ -1,1 +1,1 @@
-web: python push_service/app.py
+web: gunicorn push_service.app:app --log-file - --preload
