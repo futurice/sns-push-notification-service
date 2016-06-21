@@ -3,3 +3,4 @@ botocore==1.4.25
 Flask==0.11
 Flask-RESTful==0.3.5
 flask-restful-url-generator==0.0.4
+gunicorn==19.6.0
