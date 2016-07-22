@@ -9,7 +9,7 @@ import re
 import boto3
 import botocore.exceptions
 
-from flask import Flask, request
+from flask import Flask, request, Response
 from flask_restful import Resource, Api, abort, reqparse
 from flask_restful_url_generator import UrlList
 
@@ -80,6 +80,26 @@ AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
 AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
 AWS_REGION = os.environ["AWS_REGION"]
 AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
+STATS = {
+    "endpoint_deleted": 0,
+    "endpoint_registered": 0,
+    "endpoint_updated": 0,
+    "http_200": 0,
+    "http_204": 0,
+    "http_400": 0,
+    "http_401": 0,
+    "http_404": 0,
+    "http_500": 0,
+    "message_published": 0,
+    "sns_command_executed": 0,
+    "sns_command_failed": 0,
+    "sns_command_succeeded": 0,
+    "topic_created": 0,
+    "topic_deleted": 0,
+    "topic_subscribed": 0,
+    "topic_unsubscribed": 0,
+}
+
 
 # Check for path prefix
 if os.environ.get("PATH_PREFIX"):
@@ -143,6 +163,17 @@ name_parser.add_argument("name", required=True, type=str)
 TOPIC_NAME_RE = re.compile("[A-Za-z-_0-9]{1,256}")
 
 
+@app.after_request
+def calc_after_request_stats(response):
+    status_code = response.status_code
+    stats_key = "http_%s" % status_code
+    if stats_key not in STATS:
+        STATS[stats_key] = 1
+    else:
+        STATS[stats_key] += 1
+    return response
+
+
 class NotFoundException(Exception):
     pass
 
@@ -152,11 +183,22 @@ class Status(Resource):  # pylint:disable=missing-docstring
         return "OK"
 
 
+@app.route("/stats")
+def statistics():  # pylint:disable=missing-docstring
+    output = ""
+    for stat_key, stat_value in STATS.items():
+        output += "%s %s\n" % (stat_key, stat_value)
+    return Response(output, mimetype="text/plain")
+
+
 def run_sns_command(command, *args, **kwargs):
     """ Run SNS command, and check for common errors """
     try:
+        STATS["sns_command_executed"] += 1
         response = command(*args, **kwargs)
+        STATS["sns_command_succeeded"] += 1
     except botocore.exceptions.ClientError as err:
+        STATS["sns_command_failed"] += 1
         logger.warning("SNS command %s (args: %s, kwargs: %s) failed with %s", command, args, kwargs, err)
         client_error = str(err)
         if "NotFound" in client_error:
@@ -173,6 +215,7 @@ def subscribe_to_topics(endpoint_id, endpoint_type):
     subscription_ids = []
     if len(AUTOSUBSCRIBE_TOPICS) > 0:
         for topic in AUTOSUBSCRIBE_TOPICS:
+            STATS["topic_subscribed"] += 1
             topic_data = run_sns_command(sns.subscribe, TopicArn=topic, Protocol=endpoint_type, Endpoint=endpoint_id)
             subscription_ids.append(topic_data["SubscriptionArn"])
     return subscription_ids
@@ -183,11 +226,13 @@ def register_endpoint(platform_id, notification_token):
     logger.info("Registering %s to %s", notification_token, platform_id)
     registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_id,
                                             Token=notification_token)
+    STATS["endpoint_registered"] += 1
     return registration_response["EndpointArn"]
 
 
 def update_endpoint(endpoint_id, notification_token):
     """ Update endpoint details (enable the endpoint, update the token) """
+    STATS["endpoint_updated"] += 1
     return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_id,
                            Attributes={"Enabled": "true", "Token": notification_token})
 
@@ -241,6 +286,7 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
         endpoint_id = decode_base64_id(endpoint_id)
         logger.info("Deleting endpoint %s", endpoint_id)
         sns.delete_endpoint(EndpointArn=endpoint_id)
+        STATS["endpoint_deleted"] += 1
         return "", 204
 
     def get(self, endpoint_id):  # pylint:disable=no-self-use
@@ -273,6 +319,7 @@ class Topics(Resource):
         if not TOPIC_NAME_RE.match(name):
             abort(400, error_message="Invalid topic name. Topic name can only contain A-Z, a-z, 0-9, - and _")
         topic_id = run_sns_command(sns.create_topic, Name=name)
+        STATS["topic_created"] += 1
         return {"topic_id": topic_id["TopicArn"]}
 
 
@@ -283,7 +330,6 @@ class Topic(Resource):
             topic = run_sns_command(sns.get_topic_attributes, TopicArn=topic_id)["Attributes"]
         except NotFoundException:
             abort(404, error_message="Topic does not exist.")
-        print(topic)
         return {"topic_id": topic["TopicArn"],
                 "pending_subscriptions": int(topic["SubscriptionsPending"]),
                 "confirmed_subscriptions": int(topic["SubscriptionsConfirmed"]),
@@ -294,6 +340,7 @@ class Topic(Resource):
         admin_required()
         topic_id = decode_base64_id(topic_id)
         run_sns_command(sns.delete_topic, TopicArn=topic_id)
+        STATS["topic_deleted"] += 1
         return "", 204
 
 
@@ -302,12 +349,14 @@ class Subscription(Resource):
         topic_id = decode_base64_id(topic_id)
         endpoint_id = decode_base64_id(target_id)
         subscription = run_sns_command(sns.subscribe, TopicArn=topic_id, Protocol="application", Endpoint=endpoint_id)
+        STATS["topic_subscribed"] += 1
         return {"subscription_id": subscription["SubscriptionArn"]}
 
     def delete(self, topic_id, target_id):  # pylint:disable=no-self-use
         topic_id = decode_base64_id(topic_id)
         subscription_id = decode_base64_id(target_id)
         run_sns_command(sns.unsubscribe, SubscriptionArn=subscription_id)
+        STATS["topic_unsubscribed"] += 1
         return "", 204
 
 
@@ -323,6 +372,7 @@ def publish(data, target):
         "MessageStructure": "json",
     }
     message_data = run_sns_command(sns.publish, **kwargs)
+    STATS["message_published"] += 1
     return {"message_id": message_data.get("MessageId")}
 
 

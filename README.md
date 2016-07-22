@@ -82,6 +82,7 @@ API
     POST /device
     DELETE /device/<endpoint_id>  # base64 encoded endpoint_id
     GET /status
+    GET /stats
     GET /topics
     GET /topic/<topic_id>  # base64 encoded topic_id
     POST /subscription/topic/<topic_id>/target/<endpoint_id>  # base64 encoded topic_id and endpoint_id.
