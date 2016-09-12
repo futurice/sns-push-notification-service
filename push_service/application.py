@@ -250,7 +250,6 @@ def save_customer_id_endpoint_id_mapping(endpoint_id, customer_ids):
             TableName = DYNAMODB_TABLE_NAME,
             Key = {"customerId": {"S": customer_id}},
             UpdateExpression="ADD endpointIds :e",
-            ConditionExpression="NOT contains(endpointIds, :e)",
             ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
         )
 
