@@ -159,6 +159,9 @@ register_device_parser.add_argument("notification_token", required=True, type=st
 register_device_parser.add_argument("auto_subscribe", required=False, type=bool, default=True)
 register_device_parser.add_argument("user_data", action="append", required=True, type=str)
 
+unregister_device_parser = reqparse.RequestParser()
+unregister_device_parser.add_argument("user_data", action="append", required=True, type=str)
+
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
 
@@ -241,18 +244,37 @@ def update_endpoint(endpoint_id, notification_token, user_data):
                            Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_data)})
 
 
-def save_customer_id_endpoint_id_mapping(endpoint_id, customer_ids):
-    """ Save endpoint and customer ids to the dynamodb """
-    logger.info("Saving endpoint %s mapped to %s", endpoint_id, customer_ids)
+def save_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
+    """ Save endpoint to customer id mapping to the dynamodb """
+    logger.info("Saving endpoint %s mapped to %s", endpoint_id, customer_id)
 
-    for customer_id in customer_ids:
-        dynamodb.update_item(
+    dynamodb.update_item(
+        TableName = DYNAMODB_TABLE_NAME,
+        Key = {"customerId": {"S": customer_id}},
+        UpdateExpression="ADD endpointIds :e",
+        ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
+    )
+
+def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
+    """ Remove endpoint to customer id mapping to the dynamodb """
+    logger.info("Removing endpoint %s mapped to %s", endpoint_id, customer_id)
+
+    dynamodb.update_item(
+        TableName = DYNAMODB_TABLE_NAME,
+        Key = {"customerId": {"S": customer_id}},
+        UpdateExpression="DELETE endpointIds :e",
+        ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
+    )
+
+    try:
+        dynamodb.delete_item(
             TableName = DYNAMODB_TABLE_NAME,
             Key = {"customerId": {"S": customer_id}},
-            UpdateExpression="ADD endpointIds :e",
-            ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
+            ConditionExpression="attribute_not_exists(endpointIds)"
         )
-
+    except botocore.exceptions.ClientError as err:
+        if not err.response['Error']['Code'] == "ConditionalCheckFailedException":
+            raise
 
 class Device(Resource):  # pylint:disable=missing-docstring
     def post(self):  # pylint:disable=no-self-use
@@ -288,7 +310,8 @@ class Device(Resource):  # pylint:disable=missing-docstring
         if not endpoint_exists:
             logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
             endpoint_id = register_endpoint(platform_id, args["notification_token"], args["user_data"])
-            save_customer_id_endpoint_id_mapping(endpoint_id, args["user_data"])
+            for customer_id in args["user_data"]:
+                save_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
 
         if args["auto_subscribe"]:
             subscription_ids = subscribe_to_topics(endpoint_id, "application")
@@ -304,6 +327,12 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
         endpoint_id = decode_base64_id(endpoint_id)
         logger.info("Deleting endpoint %s", endpoint_id)
         sns.delete_endpoint(EndpointArn=endpoint_id)
+
+        args = unregister_device_parser.parse_args()
+
+        for customer_id in args["user_data"]:
+            remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
+
         STATS["endpoint_deleted"] += 1
         return "", 204
 
