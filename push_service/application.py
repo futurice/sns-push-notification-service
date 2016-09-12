@@ -79,6 +79,8 @@ if AUTH_TOKEN == ADMIN_AUTH_TOKEN:
 AWS_SECRET_KEY = os.environ["AWS_SECRET_KEY"]
 AWS_ACCESS_KEY = os.environ["AWS_ACCESS_KEY"]
 AWS_REGION = os.environ["AWS_REGION"]
+DYNAMODB_TABLE_NAME = os.environ["DYNAMODB_TABLE_NAME"]
+
 AUTOSUBSCRIBE_TOPICS = [topic for topic in os.environ.get("AUTOSUBSCRIBE_TOPICS", "").split(",") if len(topic)]
 STATS = {
     "endpoint_deleted": 0,
@@ -148,12 +150,14 @@ api = Api(app, prefix=PATH_PREFIX)  # pylint:disable=invalid-name
 app.before_request(check_authorization)
 
 sns = boto3.client("sns", region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)  # pylint:disable=invalid-name
+dynamodb = boto3.client("dynamodb", region_name=AWS_REGION, aws_access_key_id=AWS_ACCESS_KEY, aws_secret_access_key=AWS_SECRET_KEY)
 
 register_device_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 register_device_parser.add_argument("endpoint_id", required=False, type=str)
 register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
 register_device_parser.add_argument("auto_subscribe", required=False, type=bool, default=True)
+register_device_parser.add_argument("user_data", action="append", required=True, type=str)
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
@@ -221,20 +225,34 @@ def subscribe_to_topics(endpoint_id, endpoint_type):
     return subscription_ids
 
 
-def register_endpoint(platform_id, notification_token):
+def register_endpoint(platform_id, notification_token, user_data):
     """ Create a new endpoint to SNS """
     logger.info("Registering %s to %s", notification_token, platform_id)
     registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_id,
-                                            Token=notification_token)
+                                            Token=notification_token, CustomUserData=', '.join(user_data))
     STATS["endpoint_registered"] += 1
     return registration_response["EndpointArn"]
 
 
-def update_endpoint(endpoint_id, notification_token):
+def update_endpoint(endpoint_id, notification_token, user_data):
     """ Update endpoint details (enable the endpoint, update the token) """
     STATS["endpoint_updated"] += 1
     return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_id,
-                           Attributes={"Enabled": "true", "Token": notification_token})
+                           Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_data)})
+
+
+def save_customer_id_endpoint_id_mapping(endpoint_id, customer_ids):
+    """ Save endpoint and customer ids to the dynamodb """
+    logger.info("Saving endpoint %s mapped to %s", endpoint_id, customer_ids)
+
+    for customer_id in customer_ids:
+        dynamodb.update_item(
+            TableName = DYNAMODB_TABLE_NAME,
+            Key = {"customerId": {"S": customer_id}},
+            UpdateExpression="ADD endpointIds :e",
+            ConditionExpression="NOT contains(endpointIds, :e)",
+            ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
+        )
 
 
 class Device(Resource):  # pylint:disable=missing-docstring
@@ -263,14 +281,15 @@ class Device(Resource):  # pylint:disable=missing-docstring
             endpoint_id = args["endpoint_id"]
             logger.info("Updating %s with token %s", endpoint_id, args["notification_token"])
             try:
-                update_endpoint(endpoint_id, args["notification_token"])
+                update_endpoint(endpoint_id, args["notification_token"], args["user_data"])
                 endpoint_exists = True
             except NotFoundException:
                 logger.warning("Tried to update non-existing endpoint: %s", endpoint_id)
 
         if not endpoint_exists:
             logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
-            endpoint_id = register_endpoint(platform_id, args["notification_token"])
+            endpoint_id = register_endpoint(platform_id, args["notification_token"], args["user_data"])
+            save_customer_id_endpoint_id_mapping(endpoint_id, args["user_data"])
 
         if args["auto_subscribe"]:
             subscription_ids = subscribe_to_topics(endpoint_id, "application")
@@ -298,7 +317,7 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
             abort(404, error_message="Endpoint does not exist")
         logger.debug("Getting information for %s: %s", endpoint_id, details)
         attributes = details["Attributes"]
-        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"]}
+        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"], "user_data": attributes["CustomUserData"]}
 
 
 class Topics(Resource):
