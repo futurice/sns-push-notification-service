@@ -140,8 +140,6 @@ def decode_base64_id(encoded_string):
         item_id = base64.b64decode(encoded_string).decode()
     except (binascii.Error, binascii.Incomplete):
         abort(400, error_message="Incorrect or corrupted base64 data")
-    if len(item_id) < 10:
-        abort(400, error_message="Invalid ID")
     return item_id
 
 
