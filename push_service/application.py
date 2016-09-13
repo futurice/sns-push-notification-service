@@ -428,18 +428,14 @@ def publish(data, target):
     encoded_sns_data = {}
     for platform, platform_data in data.items():
         encoded_sns_data[platform] = json.dumps(platform_data)
-    
-    message_ids = []
-    for endpointId in retrieve_endpoint_ids_by_customer_id(target):
-        kwargs = {
-            "Message": json.dumps(encoded_sns_data),
-            "TargetArn": endpointId,
-            "MessageStructure": "json",
-        }
-        message_data = run_sns_command(sns.publish, **kwargs)
-        STATS["message_published"] += 1
-        message_ids.append(message_data.get("MessageId"))
-    return {"message_ids": message_ids}
+    kwargs = {
+        "Message": json.dumps(encoded_sns_data),
+        "TargetArn": target,
+        "MessageStructure": "json",
+    }
+    message_data = run_sns_command(sns.publish, **kwargs)
+    STATS["message_published"] += 1
+    return message_data.get("MessageId")
 
 
 class PublishMessage(Resource):
@@ -447,7 +443,18 @@ class PublishMessage(Resource):
         admin_required()
         data = request.get_json()
         target_id = decode_base64_id(target_id)
-        return publish(data, target_id)
+        message_id = publish(data, target_id)
+        return {"message_id": message_id}
+
+class PublishMessageToUser(Resource):
+    def post(self, user_id):  # pylint:disable=no-self-use
+        admin_required()
+        data = request.get_json()
+        user_id = decode_base64_id(user_id)
+        message_ids = []
+        for endpoint_id in retrieve_endpoint_ids_by_customer_id(user_id):
+            message_ids.append(publish(data, endpoint_id))
+        return {"message_ids": message_ids}
 
 api.add_resource(Device, "/device")
 api.add_resource(DeviceDetails, "/device/<endpoint_id>")
@@ -462,6 +469,7 @@ api.add_resource(UrlList, "/", resource_class_kwargs={"api": api})
 # These are separated, as some other services may need different handling for topics and endpoints.
 api.add_resource(PublishMessage, "/publish/topic/<target_id>", endpoint="publish_to_topic")
 api.add_resource(PublishMessage, "/publish/endpoint/<target_id>", endpoint="publish_to_endpoint")
+api.add_resource(PublishMessageToUser, "/publish/user/<user_id>", endpoint="publish_to_user")
 
 api.add_resource(Topic, "/topic/<topic_id>")
 
