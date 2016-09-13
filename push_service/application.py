@@ -253,6 +253,7 @@ def save_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
         ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
     )
 
+
 def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
     """ Remove endpoint to customer id mapping to the dynamodb """
     logger.info("Removing endpoint %s mapped to %s", endpoint_id, customer_id)
@@ -273,6 +274,22 @@ def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
     except botocore.exceptions.ClientError as err:
         if not err.response['Error']['Code'] == "ConditionalCheckFailedException":
             raise
+
+
+def retrieve_endpoint_ids_by_customer_id(customerId):
+    try:
+        result = dynamodb.get_item(
+            TableName = DYNAMODB_TABLE_NAME,
+            Key = {"customerId": {"S": customerId}}
+        )
+    except botocore.exceptions.ClientError as err:
+        logger.warning("Failed to retrieve endpoint ids: %s", err.result['Error']['Message'])
+    else:
+        try:
+           return result['Item']['endpointIds']['SS']
+        except KeyError as err:
+            abort(404, error_message="Customer ID not found")
+
 
 class Device(Resource):  # pylint:disable=missing-docstring
     def post(self):  # pylint:disable=no-self-use
@@ -411,14 +428,18 @@ def publish(data, target):
     encoded_sns_data = {}
     for platform, platform_data in data.items():
         encoded_sns_data[platform] = json.dumps(platform_data)
-    kwargs = {
-        "Message": json.dumps(encoded_sns_data),
-        "TargetArn": target,
-        "MessageStructure": "json",
-    }
-    message_data = run_sns_command(sns.publish, **kwargs)
-    STATS["message_published"] += 1
-    return {"message_id": message_data.get("MessageId")}
+    
+    message_ids = []
+    for endpointId in retrieve_endpoint_ids_by_customer_id(target):
+        kwargs = {
+            "Message": json.dumps(encoded_sns_data),
+            "TargetArn": endpointId,
+            "MessageStructure": "json",
+        }
+        message_data = run_sns_command(sns.publish, **kwargs)
+        STATS["message_published"] += 1
+        message_ids.append(message_data.get("MessageId"))
+    return {"message_ids": message_ids}
 
 
 class PublishMessage(Resource):
