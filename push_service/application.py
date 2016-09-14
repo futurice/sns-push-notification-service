@@ -242,25 +242,25 @@ def update_endpoint(endpoint_id, notification_token, user_ids):
                            Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_ids)})
 
 
-def save_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
-    """ Save endpoint to customer id mapping to the dynamodb """
-    logger.info("Saving endpoint %s mapped to %s", endpoint_id, customer_id)
+def save_user_id_endpoint_id_mapping(endpoint_id, user_id):
+    """ Save endpoint to user id mapping to the dynamodb """
+    logger.info("Saving endpoint %s mapped to %s", endpoint_id, user_id)
 
     dynamodb.update_item(
         TableName = DYNAMODB_TABLE_NAME,
-        Key = {"customerId": {"S": customer_id}},
+        Key = {"id": {"S": user_id}},
         UpdateExpression="ADD endpointIds :e",
         ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
     )
 
 
-def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
-    """ Remove endpoint to customer id mapping to the dynamodb """
-    logger.info("Removing endpoint %s mapped to %s", endpoint_id, customer_id)
+def remove_user_id_endpoint_id_mapping(endpoint_id, user_id):
+    """ Remove endpoint to user id mapping to the dynamodb """
+    logger.info("Removing endpoint %s mapped to %s", endpoint_id, user_id)
 
     dynamodb.update_item(
         TableName = DYNAMODB_TABLE_NAME,
-        Key = {"customerId": {"S": customer_id}},
+        Key = {"id": {"S": user_id}},
         UpdateExpression="DELETE endpointIds :e",
         ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
     )
@@ -268,7 +268,7 @@ def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
     try:
         dynamodb.delete_item(
             TableName = DYNAMODB_TABLE_NAME,
-            Key = {"customerId": {"S": customer_id}},
+            Key = {"id": {"S": user_id}},
             ConditionExpression="attribute_not_exists(endpointIds)"
         )
     except botocore.exceptions.ClientError as err:
@@ -276,11 +276,11 @@ def remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
             raise
 
 
-def retrieve_endpoint_ids_by_customer_id(customerId):
+def retrieve_endpoint_ids_by_user_id(user_id):
     try:
         result = dynamodb.get_item(
             TableName = DYNAMODB_TABLE_NAME,
-            Key = {"customerId": {"S": customerId}}
+            Key = {"id": {"S": user_id}}
         )
     except botocore.exceptions.ClientError as err:
         logger.warning("Failed to retrieve endpoint ids: %s", err.result['Error']['Message'])
@@ -288,7 +288,7 @@ def retrieve_endpoint_ids_by_customer_id(customerId):
         try:
            return result['Item']['endpointIds']['SS']
         except KeyError as err:
-            abort(404, error_message="Customer ID not found")
+            abort(404, error_message="User ID not found")
 
 
 class Device(Resource):  # pylint:disable=missing-docstring
@@ -325,8 +325,8 @@ class Device(Resource):  # pylint:disable=missing-docstring
         if not endpoint_exists:
             logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
             endpoint_id = register_endpoint(platform_id, args["notification_token"], args["user_ids"])
-            for customer_id in args["user_ids"]:
-                save_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
+            for user_id in args["user_ids"]:
+                save_user_id_endpoint_id_mapping(endpoint_id, user_id)
 
         if args["auto_subscribe"]:
             subscription_ids = subscribe_to_topics(endpoint_id, "application")
@@ -345,8 +345,8 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
 
         args = unregister_device_parser.parse_args()
 
-        for customer_id in args["user_ids"]:
-            remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
+        for user_id in args["user_ids"]:
+            remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
 
         STATS["endpoint_deleted"] += 1
         return "", 204
@@ -452,7 +452,7 @@ class PublishMessageToUser(Resource):
         data = request.get_json()
         user_id = decode_base64_id(user_id)
         message_ids = []
-        for endpoint_id in retrieve_endpoint_ids_by_customer_id(user_id):
+        for endpoint_id in retrieve_endpoint_ids_by_user_id(user_id):
             message_ids.append(publish(data, endpoint_id))
         return {"message_ids": message_ids}
 
