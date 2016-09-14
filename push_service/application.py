@@ -155,10 +155,10 @@ register_device_parser.add_argument("endpoint_id", required=False, type=str)
 register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
 register_device_parser.add_argument("auto_subscribe", required=False, type=bool, default=True)
-register_device_parser.add_argument("user_data", action="append", required=True, type=str)
+register_device_parser.add_argument("user_ids", action="append", required=True, type=str)
 
 unregister_device_parser = reqparse.RequestParser()
-unregister_device_parser.add_argument("user_data", action="append", required=True, type=str)
+unregister_device_parser.add_argument("user_ids", action="append", required=True, type=str)
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
@@ -226,20 +226,20 @@ def subscribe_to_topics(endpoint_id, endpoint_type):
     return subscription_ids
 
 
-def register_endpoint(platform_id, notification_token, user_data):
+def register_endpoint(platform_id, notification_token, user_ids):
     """ Create a new endpoint to SNS """
     logger.info("Registering %s to %s", notification_token, platform_id)
     registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_id,
-                                            Token=notification_token, CustomUserData=', '.join(user_data))
+                                            Token=notification_token, CustomUserData=', '.join(user_ids))
     STATS["endpoint_registered"] += 1
     return registration_response["EndpointArn"]
 
 
-def update_endpoint(endpoint_id, notification_token, user_data):
+def update_endpoint(endpoint_id, notification_token, user_ids):
     """ Update endpoint details (enable the endpoint, update the token) """
     STATS["endpoint_updated"] += 1
     return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_id,
-                           Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_data)})
+                           Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_ids)})
 
 
 def save_customer_id_endpoint_id_mapping(endpoint_id, customer_id):
@@ -317,15 +317,15 @@ class Device(Resource):  # pylint:disable=missing-docstring
             endpoint_id = args["endpoint_id"]
             logger.info("Updating %s with token %s", endpoint_id, args["notification_token"])
             try:
-                update_endpoint(endpoint_id, args["notification_token"], args["user_data"])
+                update_endpoint(endpoint_id, args["notification_token"], args["user_ids"])
                 endpoint_exists = True
             except NotFoundException:
                 logger.warning("Tried to update non-existing endpoint: %s", endpoint_id)
 
         if not endpoint_exists:
             logger.info("Endpoint does not exist. Registering a new endpoint: %s - %s", platform_id, args["notification_token"])
-            endpoint_id = register_endpoint(platform_id, args["notification_token"], args["user_data"])
-            for customer_id in args["user_data"]:
+            endpoint_id = register_endpoint(platform_id, args["notification_token"], args["user_ids"])
+            for customer_id in args["user_ids"]:
                 save_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
 
         if args["auto_subscribe"]:
@@ -345,7 +345,7 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
 
         args = unregister_device_parser.parse_args()
 
-        for customer_id in args["user_data"]:
+        for customer_id in args["user_ids"]:
             remove_customer_id_endpoint_id_mapping(endpoint_id, customer_id)
 
         STATS["endpoint_deleted"] += 1
@@ -360,7 +360,7 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
             abort(404, error_message="Endpoint does not exist")
         logger.debug("Getting information for %s: %s", endpoint_id, details)
         attributes = details["Attributes"]
-        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"], "user_data": attributes["CustomUserData"]}
+        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"], "user_ids": attributes["CustomUserData"]}
 
 
 class Topics(Resource):
