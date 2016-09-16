@@ -1,3 +1,8 @@
+About this fork
+------------
+
+This fork provides additional capability for associating SNS endpoints with application specific user identifiers. This service is expected to be hosted using elastic beanstalk preconfigured python docker container and requires access to DynamoDB.
+
 SNS push service
 ================
 
@@ -12,7 +17,6 @@ What this is and what this is not?
 - There *is no* functionality for managing platform applications or permissions. Do these through SNS console.
 - There *is no* support for email/SMS/SQS/HTTP/... subscriptions. This service is designed for mobile apps, and not to be a generic all-purpose push service.
 - There *is no* configurable authorization logic, or multiple authentication schemes. There is only admin token for all operations and restricted consumer token.
-- There *is no* state on the server side, i.e., all client information, subscriptions and so on are stored in SNS, not on this service. This means client devices (mobile apps) must keep their device IDs and subscription IDs stored somewhere.
 
 Push requests for functionality listed with "no" will probably be rejected - even though those features would be useful for some people, not everything is worth added complexity.
 
@@ -22,8 +26,10 @@ Installation
 1. Sign up to AWS
 2. Configure SNS (create topics and platform applications).
 3. Configure [IAM](https://aws.amazon.com/documentation/iam/) for SNS access. [IAM configuration explained](iam_configuration.md). Add your topics and platform applications to `Resource` array.
-4. Set up SNS credentials and other settings as environment variables ([config variables in Heroku](https://devcenter.heroku.com/articles/config-vars)).
-5. In local environment, create and activate new python virtual environment (`pyvenv push-service-env; source push-service-env/bin/activate`) and install dependencies (`pip install -r requirements.txt`). For Heroku, push to heroku remote (`git push heroku master`).
+4. Configure [IAM](http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/authentication-and-access-control.html) for DynamoDB access.
+5. Set up SNS credentials and other settings as environment variables.
+6. In local environment, create and activate new python virtual environment (`pyvenv push-service-env; source push-service-env/bin/activate`) and install dependencies (`pip install -r requirements.txt`).
+
 
 Configuration
 -------------
@@ -36,6 +42,7 @@ Configuration
 - `AWS_REGION` - AWS region name for configured SNS (i.e., `eu-west-1`). Mandatory.
 - `AUTOSUBSCRIBE_TOPICS` - optional. Comma-separated list of topics each device will be subscribed automatically during registration.
 - `PATH_PREFIX` - optional. A prefix added to the URL path (without the leading `/`). eg. with a value of `push-service` the `topics` endpoint would be under `/push-service/topics`
+- `DYNAMODB_TABLE_NAME` - table name in DynamoDB for storing user to endpoint mapping.
 
 Configuring platform applications: create platform applications in SNS first. In this service, you need to invent aliases for each platform application. For example, if you have platform application with identifier `arn:aws:sns:eu-west-1:133752156591:app/WNS/your-app-name-here`, you can add environment variable
 
@@ -60,6 +67,7 @@ For example,
     GCM_MOBILE_PLATFORM_APPLICATION="arn:aws:sns:eu-west-1:018561567490:app/GCM/another-app-identifier-here"
     GCM_TABLET_PLATFORM_APPLICATION="arn:aws:sns:eu-west-1:018561567490:app/GCM/yet-another-app-identifier-here"
     AUTOSUBSCRIBE_TOPICS="arn:aws:sns:eu-west-1:038762057900:all-items-topic"
+    DYNAMODB_TABLE_NAME="user-to-endpoint-mapping"
 
 With this configuration, all new endpoints will be subscribed to "all-items-topic". Apps can use `gcm`, `gcm_mobile` and `gcm_tablet` as platform identifier. Each identifier will be registered to a different SNS platform application.
 
@@ -94,6 +102,7 @@ Admin endpoints:
     DELETE /topic/<topic_id>  # base64 encoded topic_id
     POST /publish/endpoint/<endpoint_id>  # base64 encoded endpoint_id
     POST /publish/topic/<topic_id>  # base64 encoded topic_id
+    POST /publish/user/<user_id>  # base64 encoded user_id
 
 
 Registering an endpoint
@@ -107,7 +116,8 @@ JSON body:
       "platform": "ios",
       "endpoint_id": "optional, must be added if this device has been registered earlier",
       "notification_token": "token from apns/gcm/...",
-      "auto_subscribe": true
+      "auto_subscribe": true,
+      "user_ids": ["user1"]
     }
 
 `auto_subscribe` is true by default. Optional field. If set to false, device is not automatically subscribed to `AUTOSUBSCRIBE_TOPICS`. There is no separate endpoint for just subscribing to default topics. If you want to do that, send a new registration request without `auto_subscribe: false`, and the server will handle subscriptions.
@@ -125,13 +135,20 @@ Deregistering a device
 
     DELETE /device/<endpoint_id>
 
+    JSON body:
+
+        {
+          "user_ids": ["user1"]
+        }
+
 `endpoint_id` must be base64 encoded. For example, deleting endpoint with device_id `arn:aws:sns:eu-west-1:1234567890123:endpoint/GCM/your-application-identifier/1b386cbc-7390-303a-8507-174309a94f4b` would become `DELETE /device/YXJuOmF3czpzbnM6ZXUtd2VzdC0xOjEyMzQ1Njc4OTAxMjM6ZW5kcG9pbnQvR0NNL3lvdXItYXBwbGljYXRpb24taWRlbnRpZmllci8xYjM4NmNiYy03MzkwLTMwM2EtODUwNy0xNzQzMDlhOTRmNGI=`. Padding (trailing `=` characters) must be included.
 
-Publishing to endpoint/topic
+Publishing to endpoint/topic/user
 ----------------------------
 
     POST /publish/endpoint/<endpoint_arn>  # base64 encoded endpoint_arn
     POST /publish/topic/<topic_id>  # base64 encoded topic_id
+    POST /publish/user/<user_id> # base64 encoded user_id
 
 JSON body:
 
