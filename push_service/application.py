@@ -208,8 +208,8 @@ def run_sns_command(command, *args, **kwargs):
         client_error = str(err)
         if "NotFound" in client_error:
             raise NotFoundException
-        if "No endpoint found" in err.response["Message"] and "InvalidParameter" in err.response["Code"]:
-            raise err 
+        if "No endpoint found" in err.response["Error"]["Message"] and "InvalidParameter" in err.response["Error"]["Code"]:
+            raise NotFoundException
         for error_re, error_code, error_message in BOTO_ERRORS:
             if error_re.match(client_error):
                 abort(error_code, error_message=error_message)
@@ -266,8 +266,8 @@ def remove_user_id_endpoint_id_mapping(endpoint_id, user_id):
         UpdateExpression="DELETE endpointIds :e",
         ExpressionAttributeValues={":e": {"SS": [endpoint_id]}}
     )
-    
-try:
+
+    try:
         dynamodb.delete_item(
             TableName = DYNAMODB_TABLE_NAME,
             Key = {"id": {"S": user_id}},
@@ -457,7 +457,7 @@ class PublishMessageToUser(Resource):
         for endpoint_id in retrieve_endpoint_ids_by_user_id(user_id):
             try:
                 message_ids.append(publish(data, endpoint_id))
-            except Exception:
+            except NotFoundException:
                 remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
         return {"message_ids": message_ids}
 
