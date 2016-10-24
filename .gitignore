@@ -1,0 +1,3 @@
+push_service/push-service-env/
+*.pyc
+*.zip
