@@ -1,7 +1,7 @@
-About this fork
-------------
+About this branch
+-----------------
 
-This fork provides additional capability for associating SNS endpoints with application specific user identifiers. This service is expected to be hosted using elastic beanstalk preconfigured python docker container and requires access to DynamoDB.
+This branch provides additional capability for associating SNS endpoints with application specific user identifiers. This service is expected to be hosted using elastic beanstalk preconfigured python docker container and requires access to DynamoDB.
 
 SNS push service
 ================
