@@ -182,6 +182,8 @@ def calc_after_request_stats(response):
 class NotFoundException(Exception):
     pass
 
+class EndpointDisabledException(Exception):
+    pass
 
 class Status(Resource):  # pylint:disable=missing-docstring
     def get(self):  # pylint:disable=no-self-use,missing-docstring
@@ -210,6 +212,8 @@ def run_sns_command(command, *args, **kwargs):
             raise NotFoundException
         if "No endpoint found" in err.response["Error"]["Message"] and "InvalidParameter" in err.response["Error"]["Code"]:
             raise NotFoundException
+        if err.response["Error"]["Code"] == "EndpointDisabled":
+            raise EndpointDisabledException
         for error_re, error_code, error_message in BOTO_ERRORS:
             if error_re.match(client_error):
                 abort(error_code, error_message=error_message)
@@ -277,6 +281,21 @@ def remove_user_id_endpoint_id_mapping(endpoint_id, user_id):
         if not err.response['Error']['Code'] == "ConditionalCheckFailedException":
             raise
 
+def remove_endpoint_id(endpoint_id):
+    """ Remove endpoint, along with stored users """
+    logger.info("Removing endpoint %s", endpoint_id)
+
+    try:
+        response = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_id)
+        user_data = response['Attributes']['CustomUserData']
+        user_ids = user_data.split(', ')
+
+        for user_id in user_ids:
+            remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
+
+        sns.delete_endpoint(EndpointArn=endpoint_id)
+    except e:
+        logger.warn('Failed to remove endpoint %s', e)
 
 def retrieve_endpoint_ids_by_user_id(user_id):
     try:
@@ -457,6 +476,8 @@ class PublishMessageToUser(Resource):
         for endpoint_id in retrieve_endpoint_ids_by_user_id(user_id):
             try:
                 message_ids.append(publish(data, endpoint_id))
+            except EndpointDisabledException:
+                remove_endpoint_id(endpoint_id)
             except NotFoundException:
                 remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
         return {"message_ids": message_ids}
