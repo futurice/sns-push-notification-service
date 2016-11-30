@@ -1,3 +1,4 @@
 push_service/push-service-env/
+__pycache__/
 *.pyc
 *.zip

@@ -151,7 +151,7 @@ def serialize_custom_user_data(user_ids=[]):
 def parse_custom_user_data(user_data_string):
     custom_user_data = {}
     try:
-        custom_user_data = json.load(user_data_string)
+        custom_user_data = json.loads(user_data_string)
     except:
         custom_user_data = {}
 
@@ -316,8 +316,8 @@ def remove_endpoint_id(endpoint_id):
             remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
 
         sns.delete_endpoint(EndpointArn=endpoint_id)
-    except e:
-        logger.warn('Failed to remove endpoint %s', e)
+    except Exception as e:
+        logger.warning('Failed to remove endpoint %s', e)
 
 def retrieve_endpoint_ids_by_user_id(user_id):
     try:
@@ -498,6 +498,12 @@ class PublishMessageToUser(Resource):
         message_ids = []
         for endpoint_id in retrieve_endpoint_ids_by_user_id(user_id):
             try:
+                # Verify that user is registered for endpoint_id
+                details = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_id)
+                user_ids = parse_custom_user_data(details["Attributes"]["CustomUserData"])['user_ids']
+                if user_id not in user_ids:
+                    # User not assigned to endpoint, remove it
+                    raise NotFoundException
                 message_ids.append(publish(data, endpoint_id))
             except EndpointDisabledException:
                 remove_endpoint_id(endpoint_id)

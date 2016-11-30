@@ -204,6 +204,32 @@ Unsubscribing from topic is not possible without subscription ID:
     DELETE /subscription/topic/<topic_id>/target/<subscription_id>  # base64 encoded topic_id and subscription_id.
 
 
+
+Testing
+-------
+
+```bash
+# Setup pyenv
+pyvenv push-service-env
+source push-service-env/bin/activate
+# Downlaod dependencies
+pip install -r requirements.txt -r test-requirements.txt
+# Run tests
+python test_application.py
+```
+
+
+Deployment
+----------
+
+```bash
+# Create bundle
+./bundle.sh
+```
+
+Upload create fiel `sns-proxy-YYYY-MM-DD-hh-mm.zip` to AWS beanstaslk.
+
+
 License
 -------
 
