@@ -135,12 +135,6 @@ Deregistering a device
 
     DELETE /device/<endpoint_id>
 
-    JSON body:
-
-        {
-          "user_ids": ["user1"]
-        }
-
 `endpoint_id` must be base64 encoded. For example, deleting endpoint with device_id `arn:aws:sns:eu-west-1:1234567890123:endpoint/GCM/your-application-identifier/1b386cbc-7390-303a-8507-174309a94f4b` would become `DELETE /device/YXJuOmF3czpzbnM6ZXUtd2VzdC0xOjEyMzQ1Njc4OTAxMjM6ZW5kcG9pbnQvR0NNL3lvdXItYXBwbGljYXRpb24taWRlbnRpZmllci8xYjM4NmNiYy03MzkwLTMwM2EtODUwNy0xNzQzMDlhOTRmNGI=`. Padding (trailing `=` characters) must be included.
 
 Publishing to endpoint/topic/user

@@ -143,6 +143,23 @@ def decode_base64_id(encoded_string):
     return item_id
 
 
+def serialize_custom_user_data(user_ids=[]):
+    return json.dumps({
+        'user_ids': user_ids
+    });
+
+def parse_custom_user_data(user_data_string):
+    custom_user_data = {}
+    try:
+        custom_user_data = json.load(user_data_string)
+    except:
+        custom_user_data = {}
+
+    return {
+        'user_ids': custom_user_data.get('user_ids', [])
+    }
+
+
 app = Flask("push-service")  # pylint:disable=invalid-name
 api = Api(app, prefix=PATH_PREFIX)  # pylint:disable=invalid-name
 app.before_request(check_authorization)
@@ -156,9 +173,6 @@ register_device_parser.add_argument("platform", required=True, type=str)
 register_device_parser.add_argument("notification_token", required=True, type=str)
 register_device_parser.add_argument("auto_subscribe", required=False, type=bool, default=True)
 register_device_parser.add_argument("user_ids", action="append", required=True, type=str)
-
-unregister_device_parser = reqparse.RequestParser()
-unregister_device_parser.add_argument("user_ids", action="append", required=True, type=str)
 
 paging_parser = reqparse.RequestParser()  # pylint:disable=invalid-name
 paging_parser.add_argument("page", required=False, type=str)
@@ -235,8 +249,11 @@ def subscribe_to_topics(endpoint_id, endpoint_type):
 def register_endpoint(platform_id, notification_token, user_ids):
     """ Create a new endpoint to SNS """
     logger.info("Registering %s to %s", notification_token, platform_id)
-    registration_response = run_sns_command(sns.create_platform_endpoint, PlatformApplicationArn=platform_id,
-                                            Token=notification_token, CustomUserData=', '.join(user_ids))
+    registration_response = run_sns_command(
+        sns.create_platform_endpoint,
+        PlatformApplicationArn=platform_id,
+        Token=notification_token,
+        CustomUserData=serialize_custom_user_data(user_ids=user_ids))
     STATS["endpoint_registered"] += 1
     return registration_response["EndpointArn"]
 
@@ -244,8 +261,13 @@ def register_endpoint(platform_id, notification_token, user_ids):
 def update_endpoint(endpoint_id, notification_token, user_ids):
     """ Update endpoint details (enable the endpoint, update the token) """
     STATS["endpoint_updated"] += 1
-    return run_sns_command(sns.set_endpoint_attributes, EndpointArn=endpoint_id,
-                           Attributes={"Enabled": "true", "Token": notification_token, "CustomUserData": ', '.join(user_ids)})
+    return run_sns_command(
+        sns.set_endpoint_attributes,
+        EndpointArn=endpoint_id,
+        Attributes={
+            "Enabled": "true",
+            "Token": notification_token,
+            "CustomUserData": serialize_custom_user_data(user_ids)})
 
 
 def save_user_id_endpoint_id_mapping(endpoint_id, user_id):
@@ -287,8 +309,8 @@ def remove_endpoint_id(endpoint_id):
 
     try:
         response = run_sns_command(sns.get_endpoint_attributes, EndpointArn=endpoint_id)
-        user_data = response['Attributes']['CustomUserData']
-        user_ids = user_data.split(', ')
+        user_data = parse_custom_user_data(response['Attributes']['CustomUserData']);
+        user_ids = user_data['user_ids']
 
         for user_id in user_ids:
             remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
@@ -362,12 +384,8 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
         """ Delete the endpoint. Automatically removes all the subscriptions as well. """
         endpoint_id = decode_base64_id(endpoint_id)
         logger.info("Deleting endpoint %s", endpoint_id)
-        sns.delete_endpoint(EndpointArn=endpoint_id)
 
-        args = unregister_device_parser.parse_args()
-
-        for user_id in args["user_ids"]:
-            remove_user_id_endpoint_id_mapping(endpoint_id, user_id)
+        remove_endpoint_id(endpoint_id)
 
         STATS["endpoint_deleted"] += 1
         return "", 204
@@ -381,7 +399,12 @@ class DeviceDetails(Resource):  # pylint:disable=missing-docstring
             abort(404, error_message="Endpoint does not exist")
         logger.debug("Getting information for %s: %s", endpoint_id, details)
         attributes = details["Attributes"]
-        return {"endpoint_id": endpoint_id, "enabled": attributes["Enabled"] in (True, "True", "true"), "notification_token": attributes["Token"], "user_ids": attributes["CustomUserData"]}
+        custom_user_data = parse_custom_user_data(attributes["CustomUserData"])
+        return {
+            "endpoint_id": endpoint_id,
+            "enabled": attributes["Enabled"] in (True, "True", "true"),
+            "notification_token": attributes["Token"],
+            "user_ids": custom_user_data['user_ids']}
 
 
 class Topics(Resource):
