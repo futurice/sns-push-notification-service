@@ -471,9 +471,9 @@ def publish(data, target):
         abort(400, error_message="Invalid push message body")
     encoded_sns_data = {}
     for platform, platform_data in data.items():
-        encoded_sns_data[platform] = json.dumps(platform_data)
+        encoded_sns_data[platform] = json.dumps(platform_data, ensure_ascii=False)
     kwargs = {
-        "Message": json.dumps(encoded_sns_data),
+        "Message": json.dumps(encoded_sns_data, ensure_ascii=False),
         "TargetArn": target,
         "MessageStructure": "json",
     }
